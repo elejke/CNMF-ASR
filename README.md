@@ -20,4 +20,6 @@ Skoltech MA06002 and MA06024 courses project.
 
 8. [Denoising Convolutional Autoencoders for Noisy Speech Recognition](http://cs231n.stanford.edu/reports/Final_Report_mkayser_vzhong.pdf)
 
+9. [NMFdenoiser](https://github.com/lubimovnik/NMFdenoiser)
+
 14. [Discovering Speech Phones Using Convolutive Non-negative Matrix Factorisation with a Sparseness Constraint](http://www-bcl.cs.nuim.ie/~barak/papers/OGRADY_PEARLMUTTER_scNMF_NEUCOM.pdf)
