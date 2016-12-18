@@ -183,3 +183,161 @@ def ANLS(V, max_iter=30, sub_iter=30, sub_sub_iter=30, rank=40, callback=None, s
             callback(V, W, H)
             
     return W, H
+
+
+def klgradh(V,W,H):
+    """
+    Returns gradient of KL divergence over H
+    """
+    
+    ones = np.ones(V.shape)
+    
+    return W.transpose().dot(ones - V / (W.dot(H))) 
+
+
+def klgradw(V,W,H):
+    """
+    Returns gradient of KL divergence over W
+    """
+    
+    ones = np.ones(V.shape)
+    
+    return (ones - V / (W.dot(H))).dot(H.transpose())
+
+
+def klhessh(V,W,H):
+    """
+    Returns Hessian of KL divergence over H as a sparse CSR matrix.
+    Note that because H is a R*K matrix, Hessian has dimensions RK*RK with a block-diagonal structure.
+    """
+    
+    K = V.shape[1]
+    R = W.shape[1]
+    data = np.zeros(K * R ** 2)
+    
+    row_ind1 = np.tile(np.repeat(np.arange(R), R), K)
+    row_ind2 = np.repeat(np.arange(0, K * R, R), R ** 2)
+    row_ind = row_ind1 + row_ind2
+    
+    col_ind1 = np.tile(np.arange(R), (1, K * R))[0]
+    col_ind2 = np.repeat(np.arange(0, K * R, R), R ** 2)
+    col_ind = col_ind1 + col_ind2
+    
+    temp = V / (W.dot(H)) ** 2
+    
+    for k in range(K):
+        
+        hkx = W.transpose().dot(np.diag(temp[:,k]).dot(W))
+        hkx_row = np.reshape(hkx, (1, R ** 2))[0]
+        data[k * R ** 2: (k + 1) * R ** 2] = hkx_row.copy()
+        
+    return sp.sparse.csr_matrix((data, (row_ind, col_ind)), shape = [R * K, R * K])
+
+def klhessw(V,W,H):
+    """
+    Returns Hessian of KL divergence over W as a sparse CSR matrix.
+    Note that because H is a M*R matrix, Hessian has dimensions MR*MR with a block-diagonal structure.
+    """
+    
+    M = V.shape[0]
+    R = W.shape[1]
+    data = np.zeros(M * R ** 2)
+    
+    row_ind1 = np.tile(np.repeat(np.arange(R),R),M)
+    row_ind2 = np.repeat(np.arange(0, M * R, R), R ** 2)
+    row_ind = row_ind1 + row_ind2
+    
+    col_ind1 = np.tile(np.arange(R), (1, M * R))[0]
+    col_ind2 = np.repeat(np.arange(0, M * R, R), R ** 2)
+    col_ind = col_ind1 + col_ind2
+    
+    temp = V / (W.dot(H)) ** 2
+    
+    for m in range(M):
+        
+        hka = H.dot(np.diag(temp[m,:]).dot(H.transpose()))
+        hka_row = np.reshape(hka, (1, R ** 2))[0]
+        data[m * R ** 2: (m + 1) * R ** 2] = hka_row.copy()
+        
+    return sp.sparse.csr_matrix((data, (row_ind, col_ind)), shape = [R * M, R * M])
+
+
+def klquasinewton(V, max_iter = 10, rank = 40):
+    """
+    Quasinewton method for minimising KL-divergence.
+    The method is based on the article http://link.springer.com/chapter/10.1007/11785231_91.
+    
+    Args:
+        V: target matrix
+        max_iter: maximum number of iterations
+        rank: rank of factorization
+        
+    Returns:
+        W: basis matrix
+        H: coefficients matrix
+    """
+    
+    e = 0.000001
+    M = V.shape[0]
+    K = V.shape[1]
+    R = rank
+    np.random.seed(1)
+
+    H = np.ones((R,K))
+    W = np.ones((M,R))
+    
+    for it in range(max_iter):
+        
+        res = np.identity(R * K) * e
+        
+        #hessian
+        hess = klhessh(V,W,H).todense()
+        inv_hess = sp.linalg.inv(hess + res)
+        #inv_hess = sp.linalg.inv(hess)
+        
+        #gradient
+        gr = np.reshape(klgradh(V,W,H),(1, K * R))[0]
+        
+        #multiply inverse hessian by gradient
+        diff = inv_hess.dot(gr)
+        
+        #get new matrix H
+        H_new = np.reshape(np.reshape(H,(1,R * K))[0] - diff, (R,K))
+        #H = H - sp.linalg.inv(klhessx(V,W,H).todense()+res).dot(klgradx(V,W,H))
+        
+        #replace nonpositive elements with epsilon
+        (Hr,Hc) = H_new.nonzero()
+        for i in Hr:
+            for j in Hc:
+                if H_new[i,j] <= 0:
+                    H_new[i,j] = e
+           
+        
+        res2 = np.identity(R * M) * e
+        
+        #hessian
+        hess2 = klhessw(V,W,H).todense()
+        inv_hess2 = sp.linalg.inv(hess2 + res2)
+        #inv_hess2 = sp.linalg.inv(hess2)
+        
+        #gradient
+        gr2 = np.reshape(klgradw(V,W,H),(1, M * R))[0]
+        
+        #multiply inverse hessian by gradient
+        diff2 = inv_hess2.dot(gr2)
+        
+        #get new matrix W
+        W_new = np.reshape(np.reshape(W,(1, R * M))[0] - diff2, (M,R))
+        #W = W - sp.linalg.inv(klhessa(V,W,H).todense()+res).dot(klgrada(V,W,H))
+        
+        #replace nonpositive elements with epsilon
+        (Wr,Wc) = W_new.nonzero()
+        for i in Wr:
+            for j in Wc:
+                if W_new[i,j] <= 0:
+                    W_new[i,j] = e
+        
+        H = H_new.copy()
+        W = W_new.copy()
+        
+    return W,H
