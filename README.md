@@ -2,6 +2,9 @@
 Skoltech MA06002 and MA06024 courses project.
 
 
+![pic](https://raw.githubusercontent.com/elejke/CNMF-ASR/master/presentation/demo.png)
+
+
 # Ref:
 
 1. [From Learning Music to Learning to Separate](http://www.merl.com/publications/docs/TR2005-134.pdf)
