@@ -1,4 +1,5 @@
 import numpy as np
+import scipy
 from cvxpy import norm, Variable, Problem, SCS, OPTIMAL, Constant, Minimize
 from sklearn.decomposition.nmf import _initialize_nmf
 from nimfa import Lsnmf
@@ -185,6 +186,14 @@ def ANLS(V, max_iter=30, sub_iter=30, sub_sub_iter=30, rank=40, callback=None, s
     return W, H
 
 
+def kldiv(V,W,H):
+    """
+    Returns KL divergence between matrices V and WH
+    """
+    
+    return np.sum(V * np.log(V / (W.dot(H))) - V + W.dot(H))
+
+
 def klgradh(V,W,H):
     """
     Returns gradient of KL divergence over H
@@ -231,7 +240,7 @@ def klhessh(V,W,H):
         hkx_row = np.reshape(hkx, (1, R ** 2))[0]
         data[k * R ** 2: (k + 1) * R ** 2] = hkx_row.copy()
         
-    return sp.sparse.csr_matrix((data, (row_ind, col_ind)), shape = [R * K, R * K])
+    return scipy.sparse.csr_matrix((data, (row_ind, col_ind)), shape = [R * K, R * K])
 
 def klhessw(V,W,H):
     """
@@ -259,7 +268,7 @@ def klhessw(V,W,H):
         hka_row = np.reshape(hka, (1, R ** 2))[0]
         data[m * R ** 2: (m + 1) * R ** 2] = hka_row.copy()
         
-    return sp.sparse.csr_matrix((data, (row_ind, col_ind)), shape = [R * M, R * M])
+    return scipy.sparse.csr_matrix((data, (row_ind, col_ind)), shape = [R * M, R * M])
 
 
 def klquasinewton(V, max_iter = 10, rank = 40):
@@ -275,6 +284,7 @@ def klquasinewton(V, max_iter = 10, rank = 40):
     Returns:
         W: basis matrix
         H: coefficients matrix
+        kl_div: list of KL divergences for each iteration
     """
     
     e = 0.000001
@@ -283,42 +293,48 @@ def klquasinewton(V, max_iter = 10, rank = 40):
     R = rank
     np.random.seed(1)
 
-    H = np.ones((R,K))
-    W = np.ones((M,R))
-    
+    #initialization
+    W, H = _initialize_nmf(V, rank)
+    for i in range(W.shape[0]):
+        for j in range(W.shape[1]):
+            if W[i,j] <= 0:
+                W[i,j] = e
+    for i in range(H.shape[0]):
+        for j in range(H.shape[1]):
+            if H[i,j] <= 0:
+                H[i,j] = e
+    kl_div = []   
+             
     for it in range(max_iter):
         
         res = np.identity(R * K) * e
         
         #hessian
         hess = klhessh(V,W,H).todense()
-        inv_hess = sp.linalg.inv(hess + res)
-        #inv_hess = sp.linalg.inv(hess)
+        inv_hess = scipy.linalg.inv(hess + res)
         
         #gradient
-        gr = np.reshape(klgradh(V,W,H),(1, K * R))[0]
+        gr = np.reshape(klgradh(V,W,H),(1, K * R), order='F')[0]
         
         #multiply inverse hessian by gradient
         diff = inv_hess.dot(gr)
         
         #get new matrix H
-        H_new = np.reshape(np.reshape(H,(1,R * K))[0] - diff, (R,K))
-        #H = H - sp.linalg.inv(klhessx(V,W,H).todense()+res).dot(klgradx(V,W,H))
+        H_new = H - np.reshape(diff,(R,K),order='F')
         
         #replace nonpositive elements with epsilon
-        (Hr,Hc) = H_new.nonzero()
-        for i in Hr:
-            for j in Hc:
+        for i in range(H_new.shape[0]):
+            for j in range(H_new.shape[1]):
                 if H_new[i,j] <= 0:
                     H_new[i,j] = e
-           
+        H = H_new.copy()
+        
         
         res2 = np.identity(R * M) * e
         
         #hessian
         hess2 = klhessw(V,W,H).todense()
-        inv_hess2 = sp.linalg.inv(hess2 + res2)
-        #inv_hess2 = sp.linalg.inv(hess2)
+        inv_hess2 = scipy.linalg.inv(hess2 + res2)
         
         #gradient
         gr2 = np.reshape(klgradw(V,W,H),(1, M * R))[0]
@@ -327,17 +343,16 @@ def klquasinewton(V, max_iter = 10, rank = 40):
         diff2 = inv_hess2.dot(gr2)
         
         #get new matrix W
-        W_new = np.reshape(np.reshape(W,(1, R * M))[0] - diff2, (M,R))
-        #W = W - sp.linalg.inv(klhessa(V,W,H).todense()+res).dot(klgrada(V,W,H))
+        W_new = W - np.reshape(diff2,(M,R))
         
         #replace nonpositive elements with epsilon
-        (Wr,Wc) = W_new.nonzero()
-        for i in Wr:
-            for j in Wc:
+        for i in range(W_new.shape[0]):
+            for j in range(W_new.shape[1]):
                 if W_new[i,j] <= 0:
                     W_new[i,j] = e
-        
-        H = H_new.copy()
         W = W_new.copy()
         
-    return W,H
+        kl_div.append(kldiv(V,W,H))
+        
+    return W,H,kl_div
+    
