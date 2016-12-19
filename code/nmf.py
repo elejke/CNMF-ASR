@@ -1,6 +1,6 @@
 import numpy as np
 import scipy
-from cvxpy import norm, Variable, Problem, SCS, OPTIMAL, Constant, Minimize
+from cvxpy import norm, Variable, Problem, SCS, OPTIMAL, Constant, Minimize, sum_entries
 from sklearn.decomposition.nmf import _initialize_nmf
 from nimfa import Lsnmf
 
